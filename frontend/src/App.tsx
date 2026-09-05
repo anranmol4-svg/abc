@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './pages/Login';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
+import { ArticlesList } from './pages/ArticlesList';
+import { ArticleEditor } from './pages/ArticleEditor';
 
 const queryClient = new QueryClient();
 
@@ -31,8 +33,8 @@ function App() {
             >
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
-              {/* Future routes will go here */}
-              <Route path="articles" element={<div>Articles Page Placeholder</div>} />
+              <Route path="articles" element={<ArticlesList />} />
+              <Route path="articles/:id" element={<ArticleEditor />} />
               <Route path="sections" element={<div>Sections Page Placeholder</div>} />
             </Route>
           </Routes>
