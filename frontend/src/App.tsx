@@ -2,25 +2,16 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './pages/Login';
+import { Layout } from './components/Layout';
+import { Dashboard } from './pages/Dashboard';
 
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
-  if (isLoading) return <div>Loading...</div>;
+  if (isLoading) return <div className="h-screen w-screen flex items-center justify-center">Loading...</div>;
   if (!user) return <Navigate to="/login" />;
   return <>{children}</>;
-};
-
-const Dashboard = () => {
-  const { user, logout } = useAuth();
-  return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold mb-4">Dashboard</h1>
-      <p>Welcome, {user?.email} ({user?.role})</p>
-      <button onClick={logout} className="mt-4 px-4 py-2 bg-red-600 text-white rounded">Logout</button>
-    </div>
-  );
 };
 
 function App() {
@@ -31,14 +22,19 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route 
-              path="/dashboard" 
+              path="/" 
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <Layout />
                 </ProtectedRoute>
               } 
-            />
-            <Route path="/" element={<Navigate to="/dashboard" />} />
+            >
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              {/* Future routes will go here */}
+              <Route path="articles" element={<div>Articles Page Placeholder</div>} />
+              <Route path="sections" element={<div>Sections Page Placeholder</div>} />
+            </Route>
           </Routes>
         </Router>
       </AuthProvider>
