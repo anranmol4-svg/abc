@@ -1,8 +1,9 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db';
-import { authenticate, AuthRequest } from '../middleware/auth';
-import { Role } from '@prisma/client';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+import { ArticleStatus, Role } from '@prisma/client';
+import { performTransition } from '../services/articleStateMachine';
 
 const router = Router();
 
@@ -17,12 +18,14 @@ const updateArticleSchema = z.object({
   body: z.string().min(1).optional(),
 });
 
+const scheduleSchema = z.object({
+  publishAt: z.string().datetime(),
+});
+
 // GET /api/articles
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
-    
-    // For now, simple list. We will add advanced filters in Milestone 7.
     let articles;
     if (user.role === Role.EDITOR) {
       articles = await prisma.article.findMany({
@@ -30,9 +33,6 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         orderBy: { createdAt: 'desc' },
       });
     } else {
-      // Writers see their own articles or articles in their sections?
-      // "Writers can: view their own articles". Let's return just their own for now, or all published in their sections.
-      // Requirements say "view their own articles".
       articles = await prisma.article.findMany({
         where: { authorId: user.id },
         include: { author: { select: { id: true, email: true } }, section: { select: { id: true, name: true } } },
@@ -57,7 +57,6 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
     if (!article) return res.status(404).json({ error: 'Not found' });
 
     if (req.user!.role === Role.WRITER && article.authorId !== req.user!.id) {
-      // Depending on rules, maybe they can read others if published, but for now stick to author rules
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -81,7 +80,6 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
         return res.status(403).json({ error: 'You are not assigned to this section' });
       }
     } else if (user.role === Role.EDITOR) {
-      // Ensure section exists
       const section = await prisma.section.findUnique({ where: { id: data.sectionId } });
       if (!section) return res.status(400).json({ error: 'Section not found' });
     }
@@ -89,7 +87,17 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     const article = await prisma.article.create({
       data: {
         ...data,
-        authorId: user.id
+        authorId: user.id,
+        status: ArticleStatus.DRAFT,
+      }
+    });
+    
+    // Initial history record
+    await prisma.articleStatusHistory.create({
+      data: {
+        articleId: article.id,
+        newStatus: ArticleStatus.DRAFT,
+        actorId: user.id
       }
     });
 
@@ -114,15 +122,121 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Forbidden: Can only edit your own articles' });
     }
 
-    const updated = await prisma.article.update({
-      where: { id },
-      data
+    if (existing.status === ArticleStatus.PUBLISHED) {
+      return res.status(400).json({ error: 'Cannot directly edit a published article. Use revisions.' });
+    }
+
+    let nextStatus = existing.status;
+    if (Object.keys(data).length > 0 && (existing.status === ArticleStatus.APPROVED || existing.status === ArticleStatus.SCHEDULED)) {
+      nextStatus = ArticleStatus.IN_REVIEW;
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.article.update({
+        where: { id },
+        data: {
+          ...data,
+          status: nextStatus,
+          publishAt: nextStatus === ArticleStatus.IN_REVIEW ? null : existing.publishAt
+        }
+      });
+      
+      if (nextStatus !== existing.status) {
+        await tx.articleStatusHistory.create({
+          data: {
+            articleId: id,
+            oldStatus: existing.status,
+            newStatus: nextStatus,
+            actorId: user.id
+          }
+        });
+      }
+      return u;
     });
 
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: (err as any).issues });
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/articles/:id/submit
+router.post('/:id/submit', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.user!;
+    
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) return res.status(404).json({ error: 'Not found' });
+
+    if (user.role === Role.WRITER && article.authorId !== user.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const updated = await performTransition(article, ArticleStatus.IN_REVIEW, user);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/articles/:id/approve
+router.post('/:id/approve', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) return res.status(404).json({ error: 'Not found' });
+
+    const updated = await performTransition(article, ArticleStatus.APPROVED, req.user!);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/articles/:id/schedule
+router.post('/:id/schedule', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { publishAt } = scheduleSchema.parse(req.body);
+    
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) return res.status(404).json({ error: 'Not found' });
+
+    const updated = await performTransition(article, ArticleStatus.SCHEDULED, req.user!, { publishAt: new Date(publishAt) });
+    res.json(updated);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: (err as any).issues });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/articles/:id/publish
+router.post('/:id/publish', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) return res.status(404).json({ error: 'Not found' });
+
+    const updated = await performTransition(article, ArticleStatus.PUBLISHED, req.user!);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/articles/:id/unpublish
+router.post('/:id/unpublish', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) return res.status(404).json({ error: 'Not found' });
+
+    const updated = await performTransition(article, ArticleStatus.APPROVED, req.user!);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 
