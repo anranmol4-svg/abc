@@ -35,7 +35,7 @@ router.post('/login', async (req: Request, res: Response) => {
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid input', details: err.errors });
+      return res.status(400).json({ error: 'Invalid input', details: (err as any).issues || (err as any).errors });
     }
     res.status(500).json({ error: 'Internal server error' });
   }

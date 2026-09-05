@@ -13,9 +13,10 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const token = authHeader.split(' ')[1];
+  const token = authHeader.split(' ')[1] as string;
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret') as { id: string };
+    const secret = process.env.JWT_SECRET || 'secret';
+    const payload = jwt.verify(token, secret) as any as { id: string };
     const user = await prisma.user.findUnique({ where: { id: payload.id } });
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
