@@ -6,6 +6,7 @@ import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { ArticlesList } from './pages/ArticlesList';
 import { ArticleEditor } from './pages/ArticleEditor';
+import { SectionsList } from './pages/SectionsList';
 
 const queryClient = new QueryClient();
 
@@ -35,7 +36,7 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="articles" element={<ArticlesList />} />
               <Route path="articles/:id" element={<ArticleEditor />} />
-              <Route path="sections" element={<div>Sections Page Placeholder</div>} />
+              <Route path="sections" element={<SectionsList />} />
             </Route>
           </Routes>
         </Router>

@@ -37,13 +37,26 @@ export const ArticlesList = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Articles</h2>
-        <Link
-          to="/articles/new"
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          New Article
-        </Link>
+        <div className="flex space-x-3">
+          {user?.role === 'EDITOR' && (
+            <button
+              onClick={() => {
+                const token = localStorage.getItem('token');
+                window.open(`http://localhost:4000/api/articles/export/calendar.csv?token=${token}`, '_blank');
+              }}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Export Calendar CSV
+            </button>
+          )}
+          <Link
+            to="/articles/new"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            New Article
+          </Link>
+        </div>
       </div>
 
       <div className="bg-white shadow rounded-lg p-4">
