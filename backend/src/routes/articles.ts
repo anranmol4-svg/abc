@@ -92,6 +92,97 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+// ================= MILESTONE 8: Bulk Operations & CSV =================
+
+const bulkScheduleSchema = z.object({
+  articleIds: z.array(z.string().uuid()),
+  publishAt: z.string().datetime(),
+});
+
+const bulkActionSchema = z.object({
+  articleIds: z.array(z.string().uuid()),
+});
+
+// GET /api/articles/export/calendar.csv
+router.get('/export/calendar.csv', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const articles = await prisma.article.findMany({
+      where: {
+        status: { in: [ArticleStatus.SCHEDULED, ArticleStatus.PUBLISHED] }
+      },
+      include: {
+        author: { select: { email: true } },
+        section: { select: { name: true } }
+      },
+      orderBy: { publishAt: 'asc' }
+    });
+
+    const lines = ['ID,Title,Status,Section,Author,PublishTime'];
+    
+    for (const a of articles) {
+      const title = `"${a.title.replace(/"/g, '""')}"`;
+      const time = a.publishAt ? a.publishAt.toISOString() : (a.publishedAt ? a.publishedAt.toISOString() : '');
+      lines.push(`${a.id},${title},${a.status},"${a.section.name}","${a.author.email}",${time}`);
+    }
+
+    const csv = lines.join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="editorial_calendar.csv"');
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/articles/bulk/schedule
+router.post('/bulk/schedule', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const { articleIds, publishAt } = bulkScheduleSchema.parse(req.body);
+    const results = [];
+
+    for (const id of articleIds) {
+      try {
+        const article = await prisma.article.findUnique({ where: { id } });
+        if (!article) throw new Error('Not found');
+        
+        await performTransition(article, ArticleStatus.SCHEDULED, req.user!, { publishAt: new Date(publishAt) });
+        results.push({ articleId: id, success: true });
+      } catch (e: any) {
+        results.push({ articleId: id, success: false, reason: e.message });
+      }
+    }
+
+    res.json({ results });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: (err as any).issues });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/articles/bulk/unpublish
+router.post('/bulk/unpublish', authenticate, requireRole(Role.EDITOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const { articleIds } = bulkActionSchema.parse(req.body);
+    const results = [];
+
+    for (const id of articleIds) {
+      try {
+        const article = await prisma.article.findUnique({ where: { id } });
+        if (!article) throw new Error('Not found');
+        
+        await performTransition(article, ArticleStatus.APPROVED, req.user!);
+        results.push({ articleId: id, success: true });
+      } catch (e: any) {
+        results.push({ articleId: id, success: false, reason: e.message });
+      }
+    }
+
+    res.json({ results });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: (err as any).issues });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // GET /api/articles/:id
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
