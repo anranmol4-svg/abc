@@ -26,20 +26,68 @@ const scheduleSchema = z.object({
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
-    let articles;
-    if (user.role === Role.EDITOR) {
-      articles = await prisma.article.findMany({
-        include: { author: { select: { id: true, email: true } }, section: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-    } else {
-      articles = await prisma.article.findMany({
-        where: { authorId: user.id },
-        include: { author: { select: { id: true, email: true } }, section: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
+    
+    // Parse query params
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.max(1, parseInt(req.query.pageSize as string) || 20);
+    const search = req.query.search as string | undefined;
+    const sectionId = req.query.sectionId as string | undefined;
+    const status = req.query.status as ArticleStatus | undefined;
+    const authorId = req.query.authorId as string | undefined;
+    
+    const sortBy = (req.query.sortBy as string) || 'updatedAt';
+    const sortOrder = (req.query.sortOrder as string) === 'asc' ? 'asc' : 'desc';
+
+    // Build the where clause
+    const where: any = {};
+
+    // Role restrictions
+    if (user.role === Role.WRITER) {
+      where.authorId = user.id; // Writers only see their own articles for now
     }
-    res.json(articles);
+
+    if (sectionId) where.sectionId = sectionId;
+    if (status) where.status = status;
+    if (authorId) where.authorId = authorId;
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { body: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    // Build the orderBy clause
+    const orderBy: any = {};
+    if (['updatedAt', 'status', 'publishAt', 'createdAt'].includes(sortBy)) {
+      orderBy[sortBy] = sortOrder;
+    } else {
+      orderBy.updatedAt = 'desc';
+    }
+
+    // Query for total count
+    const total = await prisma.article.count({ where });
+    const totalPages = Math.ceil(total / pageSize);
+
+    // Fetch paginated results
+    const items = await prisma.article.findMany({
+      where,
+      include: {
+        author: { select: { id: true, email: true } },
+        section: { select: { id: true, name: true } }
+      },
+      orderBy,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    res.json({
+      items,
+      page,
+      pageSize,
+      total,
+      totalPages
+    });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
