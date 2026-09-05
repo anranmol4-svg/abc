@@ -5,6 +5,7 @@ import authRoutes from './routes/auth';
 import sectionRoutes from './routes/sections';
 import articleRoutes from './routes/articles';
 import dashboardRoutes from './routes/dashboard';
+import alertsRoutes from './routes/alerts';
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sections', sectionRoutes);
 app.use('/api/articles', articleRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/alerts', alertsRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

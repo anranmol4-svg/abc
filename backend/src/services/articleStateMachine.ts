@@ -83,6 +83,13 @@ export const performTransition = async (
       }
     });
 
+    if (targetStatus === ArticleStatus.SCHEDULED) {
+      // Reset any previous alerts so it can trigger again if overdue
+      await tx.articleAlert.deleteMany({
+        where: { articleId: article.id }
+      });
+    }
+
     return updated;
   });
 
