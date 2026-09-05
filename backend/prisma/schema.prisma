@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  EDITOR
+  WRITER
+}
+
+enum ArticleStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+}
+
+model User {
+  id               String                    @id @default(uuid())
+  email            String                    @unique
+  password         String
+  role             Role
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  
+  // Relations
+  ownedSections    Section[]                 @relation("SectionOwner")
+  assignedSections SectionWriterAssignment[]
+  articles         Article[]                 @relation("ArticleAuthor")
+  historyRecords   ArticleStatusHistory[]    @relation("HistoryActor")
+  comments         ArticleComment[]
+}
+
+model Section {
+  id          String                    @id @default(uuid())
+  name        String
+  description String?
+  isArchived  Boolean                   @default(false)
+  ownerId     String
+  owner       User                      @relation("SectionOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  writers     SectionWriterAssignment[]
+  articles    Article[]
+}
+
+model SectionWriterAssignment {
+  id        String   @id @default(uuid())
+  sectionId String
+  writerId  String
+  section   Section  @relation(fields: [sectionId], references: [id])
+  writer    User     @relation(fields: [writerId], references: [id])
+
+  @@unique([sectionId, writerId])
+}
+
+model Article {
+  id          String    @id @default(uuid())
+  title       String
+  body        String
+  status      ArticleStatus @default(DRAFT)
+  publishAt   DateTime?
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sectionId   String
+  section     Section   @relation(fields: [sectionId], references: [id])
+  
+  authorId    String
+  author      User      @relation("ArticleAuthor", fields: [authorId], references: [id])
+
+  revisions   ArticleRevision[]
+  history     ArticleStatusHistory[]
+  comments    ArticleComment[]
+  alerts      ArticleAlert[]
+}
+
+model ArticleRevision {
+  id             String    @id @default(uuid())
+  articleId      String
+  article        Article   @relation(fields: [articleId], references: [id])
+  title          String
+  body           String
+  status         ArticleStatus @default(DRAFT)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  publishedAt    DateTime?
+}
+
+model ArticleStatusHistory {
+  id        String        @id @default(uuid())
+  articleId String
+  article   Article       @relation(fields: [articleId], references: [id])
+  oldStatus ArticleStatus?
+  newStatus ArticleStatus
+  actorId   String
+  actor     User          @relation("HistoryActor", fields: [actorId], references: [id])
+  createdAt DateTime      @default(now())
+}
+
+model ArticleComment {
+  id        String   @id @default(uuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model ArticleAlert {
+  id          String   @id @default(uuid())
+  articleId   String
+  article     Article  @relation(fields: [articleId], references: [id])
+  isDismissed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
